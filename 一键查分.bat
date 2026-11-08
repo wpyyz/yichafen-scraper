@@ -50,7 +50,7 @@ for /f "delims=0123456789" %%a in ("%DELAY%") do set "DELAY=12"
 if "%DELAY%"=="" set "DELAY=12"
 
 echo 查询间隔：%DELAY% 秒
-echo （想改就双击「设置间隔.bat」）
+echo 想改间隔就双击 设置间隔.bat
 echo.
 
 rem ---------- 3. 找 Python ----------

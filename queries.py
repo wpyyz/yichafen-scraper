@@ -147,10 +147,8 @@ def render(rows, current=None, show_cmd=True):
     return "\n".join(lines)
 
 
-def describe_others(openid, others, current, proxy=None):
-    """给 cli.py 用：把备选查询连中文名一起列出来。"""
-    if not others:
-        return ""
+def rows_for(openid, others, proxy=None):
+    """把 [ (ts, uq) ] 解析成带中文名的行，给交互选择用。"""
     rows = []
     for ts, uq in others:
         name, upd = fetch_title(openid, uq, proxy=proxy)
@@ -159,6 +157,14 @@ def describe_others(openid, others, current, proxy=None):
                      "opened": time.strftime("%m-%d %H:%M", time.localtime(ts)) if ts else "",
                      "sort": ts})
         time.sleep(1.0)
+    return rows
+
+
+def describe_others(openid, others, current, proxy=None):
+    """给 cli.py 用：把备选查询连中文名一起列出来。"""
+    if not others:
+        return ""
+    rows = rows_for(openid, others, proxy=proxy)
 
     lines = ["", "[i] 还能查这些（按最近打开排序）："]
     width = max([len(r["name"]) for r in rows] + [10])

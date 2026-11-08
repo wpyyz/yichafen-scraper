@@ -57,20 +57,34 @@ def load_names(arg):
     return [a.strip().lstrip("\ufeff") for a in arg if a.strip()]
 
 
+# 缓存按「查询码」分区存放：{"by_uq": {uqCode: {姓名: 结果}}}
+# 必须分区！否则查过 A 班之后，B 班里同名的人会被当成已有结果直接跳过。
 def load_cache(path):
     if os.path.exists(path):
         try:
             with open(path, encoding="utf-8-sig") as f:
-                return json.load(f)
+                data = json.load(f)
         except Exception:
-            return {}
-    return {}
+            return {"by_uq": {}}
+        if not isinstance(data, dict) or "by_uq" not in data:
+            # 老格式（按姓名平铺、无法判断属于哪次查询）→ 直接丢弃重抓
+            return {"by_uq": {}}
+        return data
+    return {"by_uq": {}}
 
 
-def save_cache(path, cache):
+def cache_items(all_cache, uq_code):
+    return (all_cache.get("by_uq") or {}).get(uq_code) or {}
+
+
+def cache_put(all_cache, uq_code, items):
+    all_cache.setdefault("by_uq", {})[uq_code] = items
+
+
+def save_cache(path, all_cache):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False, indent=1)
+        json.dump(all_cache, f, ensure_ascii=False, indent=1)
     os.replace(tmp, path)
 
 
@@ -192,7 +206,7 @@ def resolve_target(args):
     candidates = []          # (时间戳, uqCode, 来源说明)
     if args.uq_code:
         # 命令行是绝对优先，不参与时间比较
-        return openid, args.uq_code, "命令行 --uq-code", time.time()
+        return openid, args.uq_code, "命令行 --uq-code", time.time(), []
     for uq, mt, _p in cache_uq:
         candidates.append((mt, uq, "微信缓存，最后打开于 %s"
                            % time.strftime("%Y-%m-%d %H:%M", time.localtime(mt))))
@@ -226,6 +240,7 @@ def main():
     ap.add_argument("--proxy", help="可选代理")
     ap.add_argument("--wechat-root", action="append", default=[],
                     help="微信数据目录，可多次指定")
+    ap.add_argument("--pick", type=int, help="在有多个查询时直接选第几个（配合上面的列表）")
     ap.add_argument("--yes", action="store_true", help="跳过确认，直接开跑")
     args = ap.parse_args()
 
@@ -235,10 +250,45 @@ def main():
 
     openid, uq_code, source, ts, others = resolve_target(args)
 
+    # 有多个查询时：列出全部（含当前），按编号就能换
     if others:
-        print(queries.describe_others(openid, others, uq_code, proxy=args.proxy))
+        all_rows = queries.rows_for(openid, [(ts, uq_code)] + list(others), proxy=args.proxy)
+        all_rows.sort(key=lambda r: -r["sort"])
+        width = max([len(r["name"]) for r in all_rows] + [10])
+        print("")
+        print("[i] 这个账号下的成绩（编号直接选）：")
+        for i, r in enumerate(all_rows, 1):
+            mark = "  ← 当前" if r["uq"] == uq_code else ""
+            print("    %d) %-*s   发布 %-10s 最近打开 %s%s"
+                  % (i, width, r["name"], r["pub"], r["opened"] or "—", mark))
+        print("")
 
-    cache = load_cache(args.cache)
+        chosen = None
+        if args.pick:
+            if 1 <= args.pick <= len(all_rows):
+                chosen = all_rows[args.pick - 1]
+            else:
+                print("    --pick 超出范围，继续用当前这份。")
+        elif not args.yes and sys.stdin is not None and sys.stdin.isatty():
+            try:
+                raw = input("    输入编号换一份，直接回车查当前这份: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                raw = ""
+            if raw.isdigit() and 1 <= int(raw) <= len(all_rows):
+                chosen = all_rows[int(raw) - 1]
+        else:
+            print("    想换的话双击「选择查询.bat」，或用 --pick 编号。")
+
+        if chosen and chosen["uq"] != uq_code:
+            uq_code = chosen["uq"]
+            source = "手动选择"
+            ts = time.time()
+            print("    已换成：%s" % chosen["name"])
+        print("")
+
+    # 选定之后才建客户端、取标题（因为可能刚换过一份）
+    all_cache = load_cache(args.cache)
+    cache = cache_items(all_cache, uq_code)
     client = YiChaFen(uq_code, openid, proxy=args.proxy)
 
     info = client.refresh_kkey().get("queryInfo") or {}
@@ -297,7 +347,8 @@ def main():
 
         if data is not None:
             cache[name] = {"ok": True, "data": data}
-            save_cache(args.cache, cache)
+            cache_put(all_cache, uq_code, cache)
+            save_cache(args.cache, all_cache)
             print("  [%d/%d] %s -> %d 行" % (i, len(names), name, len(record_rows(data))))
 
         time.sleep(args.delay + random.random() * 2)
