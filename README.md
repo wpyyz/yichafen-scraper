@@ -165,6 +165,50 @@ python cli.py --names 张三 李四 --uq-code YOUR_UQ_CODE --openid <你的openi
 | `--delay` | 每人间隔秒 | `12` |
 | `--wechat-root` | 微信数据目录（自动猜不到时指定） | 自动 |
 
+## 完整的接口清单（反编译小程序得到）
+
+包在 `%APPDATA%\Tencent\xwechat\radium\users\<id>\applet\packages\wx9300e397f1f28ec7\<ver>\__APP__.wxapkg`，
+微信 4.x 是 `V1MMWX` 格式（AES-256-CBC + 按 wxid 派生 XOR），解开后 `app-service.js` 里能拿到全部请求调用点。
+
+**客户端一共只有这 30 个接口：**
+
+```
+/qz                  /verifyParams        /subjectResultV4     /subjectList
+/queryResultPageV2   /refreshQueryTicket  /typeSuccessV2       /scoreAnalysis
+/favScoreAnalysis    /favQueryListV2      /favScoreQueryResult /doDeleteFavScore
+/doLockResult        /doSaveEditedFields  /doSubmitSignData     /doVerifyDoorPwd
+/doVerifyGroupDoorPwd /getDoorConfig      /getChangeLongPwdInfo /changeLongPwd
+/checkSmsCode        /checkTeacherCode    /getMiniprogramInfo  /getUserInfoByTuCode
+/gp                  /dfV3                /submitDataFormV1    /submitComment
+/statisBtnsClickCnt  /vipSpecifyAccnout
+```
+
+## 为什么「拿不到名单」
+
+经常有人问：能不能不提供姓名，直接把这批人的名字扒下来？
+
+**不能。** 下面是实测过的路子，全部堵死：
+
+| 思路 | 结果 |
+|---|---|
+| 空值 / 通配符 `%` `_` `*` | `[ 姓名 ] 不能为空` 或 「姓名不正确」 |
+| 单字、前缀（王 / 王鹏） | 精确匹配，一律「姓名不正确」 |
+| `unconditional=1` 无条件查询 | 服务端忽略该参数，仍要姓名 |
+| 联想/补全接口（12 个候选路径） | 全部 404 |
+| 分页 `page/pageSize/needPaging` | 被忽略，结果绑定 token |
+| 导出整表（datacenter） | 只有 `resultExcel` / `getFileByKey`，绑定单个 token |
+| 伪造 openidCode | `/qz` 直接 `授权参数错误` |
+| 换 `clientProtocolVersion` | 1 / 2 / 1000 / 9999 无差别 |
+| 换 Referer 里的 appid | `请求来源不合法` |
+| uqCode → tuCode 反推 | **可行**（`certificationUrl` 泄露），但 tuCode 只能列查询，拿不到数据 |
+
+原因在客户端代码里写得很清楚：**每个取数据的接口都要求 `token`，而 `token` 只能由「正确且非空的查询条件」换取**。
+`/queryResultPageV2`、`/scoreAnalysis` 也都是 `{token, ...}` 形态，token 绑死了条件，翻页只会翻同一个人的多行。
+
+学生端小程序里没有下发名单的接口——那份名单在教师端。
+
+**所以名单只能从别处来**：班级群成员、成绩单、老师发的表格。
+这也正是本工具要求你给一份姓名文件的原因。
 ## 接口
 
 三个接口，都是从小程序 `utils/request.js` 里还原的：

@@ -373,6 +373,8 @@ def main():
     out_path = args.out or auto_out()
     out = build_xlsx(rows, out_path, meta, failed)
     print("\n[+] %d 行 -> %s" % (len(rows), out or "(未导出)"))
+    if rows:
+        print("    提示：跑「名单收集.bat」可以把查过的姓名整理进 班级名单.txt，下次直接复用。")
     return 0 if rows else 1
 
 
