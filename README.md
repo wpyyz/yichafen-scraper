@@ -208,6 +208,24 @@ python cli.py --names 张三 李四 --uq-code YOUR_UQ_CODE --openid <你的openi
 | 导出 | `resultExcel` / `getFileByKey` | POST `resultExcel` 拿 `fileKey`，绑 `resultToken`，单人文件 |
 | 联想 | 补全接口（12 个候选路径） | 全部 404 |
 | 站点 | 老师站 `xxxx.yichafen.com` 各路径 | 302 到 `jumpminip.html`；`/Index/certification` 是公开证明页，无数据 |
+### 参照公开的小程序渗透思路逐条对照
+
+常见套路是「加密鉴权 → 逆向签名 → 遍历」或「Swagger 泄露 → fuzz 接口」。逐条套过：
+
+| 公开手法 | 在本目标的验证 |
+|---|---|
+| Hawk 动态签名（ts / nonce / mac） | 反编译查请求封装，**只有 `content-type`，没有签名层** |
+| MD5 digest + 时间戳签名 | 同上，不存在 |
+| RSA 加密口令 | 无登录接口（openid 免登），不适用 |
+| AES-CBC 报文加密 | 请求全是明文 form，不存在 |
+| `%` 模糊查询越权 | 姓名是精确匹配，已测 |
+| Swagger 文档泄露 | 主站相关路径 302；导出服务 `/swagger-resources` 返回空数组 `[]` |
+| token 跨服务复用 | JWT 打主站 → `请从查分主页登陆`；result token 当 `fileKey` → 空响应，互不认 |
+| 目录逐层删除探测 | 导出服务只有 `download` 一族，其余全 404 |
+
+**关键差异**：这类产品没有「加密鉴权」这一层可逆向——请求全明文、身份靠 openid、
+数据靠 token。所以文章里「还原签名算法后任意遍历」的路径在这里没有对应物，
+瓶颈直接落在「不知道姓名」这一件事上。
 原因在客户端代码里写得很清楚：**每个取数据的接口都要求 `token`，而 `token` 只能由「正确且非空的查询条件」换取**。
 `/queryResultPageV2`、`/scoreAnalysis` 也都是 `{token, ...}` 形态，token 绑死了条件，翻页只会翻同一个人的多行。
 
