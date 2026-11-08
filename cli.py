@@ -26,6 +26,7 @@ import time
 
 from ycf import YiChaFen, CooldownError, QueryError, record_rows
 import discover
+import queries
 
 DEFAULT_CACHE = "ycf-cache.json"
 CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ycf-config.json")
@@ -204,15 +205,9 @@ def resolve_target(args):
     candidates.sort(key=lambda x: -x[0])
     ts, uq, source = candidates[0]
 
-    others = [(c, u) for c, u, _ in candidates[1:] if u != uq]
-    if others:
-        print("[i] 缓存里还有别的查询码，想换用 --uq-code 指定：")
-        for c, u in others[:5]:
-            stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(c)) if c > 0 else "未知"
-            print("      %s   (%s)" % (u, stamp))
-        print()
+    others = [(c, u) for c, u, _ in candidates[1:] if u != uq][:5]
 
-    return openid, uq, source, ts
+    return openid, uq, source, ts, others
 
 
 def main():
@@ -238,7 +233,10 @@ def main():
     if not names:
         raise SystemExit("没有可查询的姓名")
 
-    openid, uq_code, source, ts = resolve_target(args)
+    openid, uq_code, source, ts, others = resolve_target(args)
+
+    if others:
+        print(queries.describe_others(openid, others, uq_code, proxy=args.proxy))
 
     cache = load_cache(args.cache)
     client = YiChaFen(uq_code, openid, proxy=args.proxy)

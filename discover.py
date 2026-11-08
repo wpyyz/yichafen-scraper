@@ -19,7 +19,7 @@ import time
 import urllib.parse
 
 URL_RE = re.compile(
-    rb"(?:https?%3A%2F%2F|https?://)(?:www\.)?yichafen\.com[^\x00-\x20\"'<>|]{0,400}"
+    rb"(?:https?%3A%2F%2F|https?://)(?:www\.)?yichafen\.com[^\x00-\x20\"'<>|,]{0,400}"
 )
 
 MAX_FILE_BYTES = 80 * 1024 * 1024
@@ -45,6 +45,14 @@ def default_roots():
             seen.add(r)
             out.append(r)
     return out
+
+
+def _clean(value, pattern):
+    """只接受严格匹配的值，挡掉日志里粘上来的逗号字段。"""
+    if not value:
+        return None
+    value = value.strip()
+    return value if re.match(pattern, value) else None
 
 
 def _params(text):
@@ -90,9 +98,9 @@ def scan(roots=None, max_files=50000, quiet=True):
                 for m in URL_RE.finditer(blob):
                     text = urllib.parse.unquote(m.group(0).decode("utf-8", "ignore"))
                     ps = _params(text)
-                    uq = ps.get("uqCode")
-                    oid = ps.get("openidCode")
-                    tu = ps.get("tuCode")
+                    uq = _clean(ps.get("uqCode"), r"^[A-Za-z0-9]{4,24}$")
+                    oid = _clean(ps.get("openidCode"), r"^[A-Za-z0-9_\-]{16,64}$")
+                    tu = _clean(ps.get("tuCode"), r"^[A-Za-z0-9]{4,24}$")
 
                     if uq and (uq not in acc["uq"] or acc["uq"][uq][0] < mtime):
                         acc["uq"][uq] = (mtime, path)
@@ -165,3 +173,11 @@ def recent_openid(roots=None):
         return None
     oid, (mt, path) = max(acc["oid"].items(), key=lambda kv: kv[1][0])
     return oid
+
+def recent_tu(roots=None):
+    """最新的 tuCode（老师账号码），没有就 None。"""
+    acc = scan(roots=roots)
+    if not acc["tu"]:
+        return None
+    tu, _ = max(acc["tu"].items(), key=lambda kv: kv[1][0])
+    return tu
