@@ -103,19 +103,16 @@ echo 本次结果将保存为：成绩输出\成绩%IDX%.xlsx
 echo.
 
 rem ---------- 6. 开跑 ----------
-%PY% cli.py --names "%NAMES%" --delay %DELAY% --out "%OUTFILE%"
+%PY% cli.py --names "%NAMES%" --delay %DELAY% --out "%OUTFILE%" --yes
 set "RC=%ERRORLEVEL%"
 
 if not "%RC%"=="0" (
     echo.
     echo --------------------------------------------------
-    echo 如果提示「有多个查询项目」，输入编号可以重跑；
-    echo 直接回车则退出。
-    set /p PICK=输入编号: 
-    if not "!PICK!"=="" (
-        %PY% cli.py --names "%NAMES%" --delay %DELAY% --out "%OUTFILE%" --pick !PICK!
-        set "RC=%ERRORLEVEL%"
-    )
+    echo 没跑成功。上面那段一般会写原因，常见两种：
+    echo   1. 找不到 openidCode  ^-^> 先在微信电脑端打开一次那个查询
+    echo   2. 想查的不是这一份    ^-^> 加 --uq-code 指定查询码
+    echo.
 )
 
 echo.

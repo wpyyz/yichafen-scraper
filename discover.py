@@ -145,3 +145,23 @@ if __name__ == "__main__":
                     help="微信数据目录，可多次指定；不给就自动猜")
     args = ap.parse_args()
     print(describe(candidates(args.wechat_root or None)))
+
+def recent_uq(roots=None):
+    """
+    返回缓存里出现过的 uqCode，按最后出现时间倒序：
+        [(uqCode, mtime, 来源路径)]
+    用来判断「用户最近打开的是哪一次查询」。
+    """
+    acc = scan(roots=roots)
+    out = [(uq, mt, path) for uq, (mt, path) in acc["uq"].items()]
+    out.sort(key=lambda x: -x[1])
+    return out
+
+
+def recent_openid(roots=None):
+    """最新的 openidCode，没有就 None。"""
+    acc = scan(roots=roots)
+    if not acc["oid"]:
+        return None
+    oid, (mt, path) = max(acc["oid"].items(), key=lambda kv: kv[1][0])
+    return oid
