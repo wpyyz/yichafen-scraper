@@ -183,6 +183,28 @@ python cli.py --names 张三 李四 --uq-code YOUR_UQ_CODE --openid <你的openi
 /statisBtnsClickCnt  /vipSpecifyAccnout
 ```
 
+## 一个真实的越权缺陷（但不影响名单）
+
+`/subjectResultV4` **完全不校验 token 与 uqCode 的绑定**：
+
+```
+uqCode = 正确查询码   → 返回 token 对应的记录
+uqCode = 另一个查询   → 同样返回
+uqCode = 乱写         → 同样返回
+完全不给 uqCode       → 同样返回
+```
+
+服务端只认 `token`，`uqCode` 在取数阶段被忽略。`token` 是服务端有状态存储的
+（`verified_score_v2_<uuid>`，改一个字符即失效，伪造无效），身份 `openidCode`
+仍然严格校验。
+
+**影响**：拿到任意一份查询的 token，就能带着它访问任意 `uqCode`——但返回的永远
+是这个 token 自己那份数据，不构成横向越权。真正决定数据范围的是签发 token 时的
+查询条件（那个姓名），所以对「拿名单」没有帮助。
+
+记在这里是因为它值得报告：`uqCode` 参与业务却不在取数时校验。
+
+
 ## 为什么「拿不到名单」
 
 经常有人问：能不能不提供姓名，直接把这批人的名字扒下来？
