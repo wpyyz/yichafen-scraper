@@ -27,6 +27,7 @@ import time
 from ycf import YiChaFen, CooldownError, QueryError, record_rows
 import discover
 import queries
+import report
 
 DEFAULT_CACHE = "ycf-cache.json"
 CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ycf-config.json")
@@ -99,13 +100,29 @@ def load_config():
 
 
 def save_config(openid, uq_code, tu_code=None, uq_ts=None):
+    # 保留 report / me 这类附加设置，别每次跑完把人家首选项冲掉
+    extra = {k: v for k, v in load_config().items()
+             if k not in ("openid", "uq_code", "tu_code", "uq_ts")}
+    data = {"openid": openid, "uq_code": uq_code,
+            "tu_code": tu_code, "uq_ts": uq_ts}
+    data.update(extra)
     try:
         with open(CONFIG, "w", encoding="utf-8") as f:  # 不带 BOM
-            json.dump({"openid": openid, "uq_code": uq_code,
-                       "tu_code": tu_code, "uq_ts": uq_ts},
-                      f, ensure_ascii=False, indent=1)
+            json.dump(data, f, ensure_ascii=False, indent=1)
     except Exception:
         pass
+
+
+def update_config(**kv):
+    """只改几个键，其余原样保留。"""
+    data = load_config()
+    data.update(kv)
+    try:
+        with open(CONFIG, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+    return data
 
 
 def build_xlsx(rows, out_path, meta=None, failed=None):
@@ -224,6 +241,45 @@ def resolve_target(args):
     return openid, uq, source, ts, others
 
 
+def decide_report(args):
+    """
+    决定要不要出「加强版」表格，以及把谁单独拎出来。
+
+    优先级：命令行 > 配置文件 > 第一次运行时问一遍
+    问过就写进配置，之后不再打扰。
+    """
+    cfg = load_config()
+    want = args.report
+    me = (args.me or cfg.get("me") or "").strip()
+
+    if want is None:
+        want = cfg.get("report")
+
+    if want is None:
+        if sys.stdin is not None and sys.stdin.isatty() and not args.yes:
+            print("")
+            print("[?] 成绩表里要不要附带这几页？")
+            print("      各科平均分 / 我的成绩 / 覆盖情况 / 未命中姓名")
+            try:
+                a = input("    直接回车＝要，输 n ＝只要一张平表: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                a = "n"
+            want = a not in ("n", "no")
+            if want and not me:
+                try:
+                    me = input("    你的名字（留空就不单独拎出来）: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    me = ""
+            update_config(report=bool(want), me=me)
+            print("    已记住，以后不再问；想改就用 --report / --no-report / --me")
+            print("")
+        else:
+            want = False
+            update_config(report=False)
+
+    return bool(want), me
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="批量查询易查分成绩并导出 Excel",
@@ -242,6 +298,11 @@ def main():
                     help="微信数据目录，可多次指定")
     ap.add_argument("--pick", type=int, help="在有多个查询时直接选第几个（配合上面的列表）")
     ap.add_argument("--yes", action="store_true", help="跳过确认，直接开跑")
+    ap.add_argument("--report", dest="report", action="store_true", default=None,
+                    help="生成附加页：各科平均分 / 我的成绩 / 覆盖情况 / 未命中姓名")
+    ap.add_argument("--no-report", dest="report", action="store_false",
+                    help="只输出一张平表")
+    ap.add_argument("--me", help="你的名字，单独拎出一页成绩")
     args = ap.parse_args()
 
     names = load_names(args.names)
@@ -371,7 +432,11 @@ def main():
         "未命中数": len(failed),
     }
     out_path = args.out or auto_out()
-    out = build_xlsx(rows, out_path, meta, failed)
+    want, me = decide_report(args)
+    if want:
+        out = report.build(rows, out_path, meta, failed, me=me, main_title=title)
+    else:
+        out = build_xlsx(rows, out_path, meta, failed)
     print("\n[+] %d 行 -> %s" % (len(rows), out or "(未导出)"))
     if rows:
         print("    提示：跑「名单收集.bat」可以把查过的姓名整理进 班级名单.txt，下次直接复用。")
