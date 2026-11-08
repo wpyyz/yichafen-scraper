@@ -144,7 +144,18 @@ def build(rows, out_path, meta=None, failed=None, me=None, main_title="成绩数
             given_rank = c
             break
 
-    # ---------- 排序 + 名次 ----------
+    # 班级里没给名次时的退路：先看总分，再看校级名次
+    school_rank = None
+    for c in cols:
+        s = str(c)
+        if c != given_rank and any(k in s for k in ("校排名", "年级排名", "全校排名", "校名次")):
+            school_rank = c
+            break
+
+    # ---------- 排序 ----------
+    # 有班排名 → 照人家原本的名次排；
+    # 没有 → 按总分从高到低（顺便算个班排名）；
+    # 连总分都没有 → 按校级名次从小到大。
     ranked = {}
     if rows:
         if given_rank:
@@ -159,6 +170,9 @@ def build(rows, out_path, meta=None, failed=None, me=None, main_title="成绩数
                     rank, prev = i, v
                 ranked[id(r)] = rank
             rows = ordered
+        elif school_rank:
+            rows = sorted(rows, key=lambda r: (_num(r.get(school_rank)) is None,
+                                               _num(r.get(school_rank)) or 0))
 
     wb = Workbook()
 
