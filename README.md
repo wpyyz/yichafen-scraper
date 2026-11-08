@@ -187,21 +187,27 @@ python cli.py --names 张三 李四 --uq-code YOUR_UQ_CODE --openid <你的openi
 
 经常有人问：能不能不提供姓名，直接把这批人的名字扒下来？
 
-**不能。** 下面是实测过的路子，全部堵死：
+**不能。** 下面每一条都实测过，全部堵死：
 
-| 思路 | 结果 |
-|---|---|
-| 空值 / 通配符 `%` `_` `*` | `[ 姓名 ] 不能为空` 或 「姓名不正确」 |
-| 单字、前缀（王 / 王鹏） | 精确匹配，一律「姓名不正确」 |
-| `unconditional=1` 无条件查询 | 服务端忽略该参数，仍要姓名 |
-| 联想/补全接口（12 个候选路径） | 全部 404 |
-| 分页 `page/pageSize/needPaging` | 被忽略，结果绑定 token |
-| 导出整表（datacenter） | 只有 `resultExcel` / `getFileByKey`，绑定单个 token |
-| 伪造 openidCode | `/qz` 直接 `授权参数错误` |
-| 换 `clientProtocolVersion` | 1 / 2 / 1000 / 9999 无差别 |
-| 换 Referer 里的 appid | `请求来源不合法` |
-| uqCode → tuCode 反推 | **可行**（`certificationUrl` 泄露），但 tuCode 只能列查询，拿不到数据 |
-
+| 类别 | 思路 | 结果 |
+|---|---|---|
+| 条件注入 | 空值 / 通配符 `%` `_` `*` | `[ 姓名 ] 不能为空` 或「姓名不正确」 |
+| 条件注入 | 单字、前缀（王 / 王鹏） | 精确匹配，一律「姓名不正确」 |
+| 条件注入 | `unconditional=1` 无条件查询 | 服务端忽略该参数 |
+| 条件注入 | 同名参数重复提交（`s_xingming=%&s_xingming=张三`） | 取最后一个值，无绕过 |
+| 条件注入 | JSON 对象 `{"$ne":null}` | 当字面量比对，「姓名不正确」 |
+| 类型混淆 | `s_xingming[]=张三` 数组注入 | `查询参数格式错误` |
+| 参数篡改 | 附加 `isTeacher` / `admin` / `debug` / `one_w_one_p` / `mpType` | 全部被忽略，不存在的名字照样拒绝 |
+| 身份伪造 | 伪造 `openidCode` | `/qz` 直接 `授权参数错误` |
+| 身份伪造 | 换 `clientProtocolVersion`（1/2/1000/9999） | 无差别 |
+| 身份伪造 | 换 Referer 里的 appid | `请求来源不合法` |
+| 越权 | `uqCode → tuCode` 反推 | **可行**（`certificationUrl` 泄露），但 tuCode 只能列查询名称 |
+| 越权 | 教师编号 `/checkTeacherCode` | 需正确编号，且只放行进入查询页，不含数据 |
+| 越权 | 开门口令 `/doVerifyDoorPwd` `/getDoorConfig` | 参数错误 / 404 |
+| 分页 | `/queryResultPageV2` `pageNum=2,3` | 第 1 页 1 条，之后 0 条，`totalPage=null` |
+| 导出 | `resultExcel` / `getFileByKey` | POST `resultExcel` 拿 `fileKey`，绑 `resultToken`，单人文件 |
+| 联想 | 补全接口（12 个候选路径） | 全部 404 |
+| 站点 | 老师站 `xxxx.yichafen.com` 各路径 | 302 到 `jumpminip.html`；`/Index/certification` 是公开证明页，无数据 |
 原因在客户端代码里写得很清楚：**每个取数据的接口都要求 `token`，而 `token` 只能由「正确且非空的查询条件」换取**。
 `/queryResultPageV2`、`/scoreAnalysis` 也都是 `{token, ...}` 形态，token 绑死了条件，翻页只会翻同一个人的多行。
 
